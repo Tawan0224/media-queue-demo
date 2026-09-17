@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media upload queue demo</title>
+<style>
+  :root { --ink:#1d2433; --muted:#5b6475; --line:#d9dee7; --bg:#f6f8fb; --blue:#2457c5; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); background:var(--bg); }
+  main { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
+  p.lead { color: var(--muted); margin: 0 0 1.5rem; }
+  .upload { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem; display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
+  button { background:var(--blue); color:#fff; border:0; border-radius:6px; padding:.6rem 1.1rem; font-size:1rem; cursor:pointer; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #9bb7f0; outline-offset: 2px; }
+  #reply { margin:.75rem 0 2rem; font-size:1.05rem; min-height:1.5em; }
+  #reply strong { font-size:1.4rem; }
+  .table-wrap { overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:8px; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  th, td { padding:.6rem .75rem; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; }
+  img { height:44px; border-radius:4px; display:block; }
+  .status { padding:.15rem .55rem; border-radius:999px; font-weight:600; font-size:.82rem; white-space:nowrap; }
+  .pending    { background:#e6e9ef; }
+  .processing { background:#fff0b8; }
+  .retrying   { background:#ffd9a8; }
+  .completed  { background:#c9efcf; }
+  .failed     { background:#f6c4c4; }
+  .error { color:#9b1c1c; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+  code { font-size:.8rem; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Upload a video</h1>
+  <p class="lead">The server replies as soon as the file is saved. Conversion happens in the background, and this table refreshes every 2 seconds.</p>
+
+  <div class="upload">
+    <input type="file" id="file" accept="video/*,image/*">
+    <button id="upload">Upload</button>
+  </div>
+  <p id="reply" aria-live="polite"></p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Thumbnail</th><th>File</th><th>Status</th><th>Attempts</th><th>Worker</th><th>Result</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6">No uploads yet. Choose a file to start.</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const reply = document.getElementById('reply');
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('upload').addEventListener('click', async () => {
+  const file = document.getElementById('file').files[0];
+  if (!file) { reply.textContent = 'Choose a file first.'; return; }
+
+  const form = new FormData();
+  form.append('file', file);
+  reply.textContent = 'Uploading…';
+  const started = performance.now();
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: form });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    const ms = Math.round(performance.now() - started);
+    reply.innerHTML = `Server replied in <strong>${ms} ms</strong> with job <code>${esc(body.job_id)}</code>`;
+    loadJobs();
+  } catch (err) {
+    reply.textContent = 'Upload failed: ' + err.message;
+  }
+});
+
+async function loadJobs() {
+  try {
+    const jobs = await (await fetch('/jobs')).json();
+    if (!jobs.length) return;
+    document.getElementById('rows').innerHTML = jobs.map(job => {
+      const out = job.outputs || {};
+      const thumb = out.thumbnail ? `<img src="${esc(out.thumbnail)}" alt="">` : '';
+      const links = Object.entries(out)
+        .filter(([k]) => k !== 'thumbnail')
+        .map(([k, v]) => `<a href="${esc(v)}" target="_blank">${esc(k)}</a>`).join(' ');
+      const result = links || (job.error ? `<span class="error" title="${esc(job.error)}">${esc(job.error)}</span>` : '');
+      return `<tr>
+        <td>${thumb}</td>
+        <td>${esc(job.filename)}<br><code>${esc(job.id.slice(0, 8))}</code></td>
+        <td><span class="status ${esc(job.status)}">${esc(job.status)}</span></td>
+        <td>${job.attempts}</td>
+        <td><code>${esc(job.worker)}</code></td>
+        <td>${result}</td>
+      </tr>`;
+    }).join('');
+  } catch (_) { /* API restarting; try again next tick */ }
+}
+
+loadJobs();
+setInterval(loadJobs, 2000);
+</script>
+</body>
+</html>
