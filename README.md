@@ -92,6 +92,8 @@ docker compose cp worker:/data/sample.mp4 ./sample.mp4
 Stop everything with `docker compose down`, or `docker compose down -v` to also erase all data.
 
 ---
+## Architecture
+![Architecture diagram](docs/images/architecture.jpg)
 
 ## API
 
